@@ -43,69 +43,21 @@ tensorflow/java/src/main/native/tensorflow_jni.cc \
 tensorflow/java/src/main/native/tensor_jni.cc \
 tensorflow/contrib/android/jni/run_stats_jni.cc
 
-# CUDA_STATIC_LIBS := \
-# $(wildcard /home/hanchenl/JetPack_Android/cuda-8.0/targets/armv7-linux-androideabi/lib/lib*_static.a)
-
 INFERENCE_OBJS := $(addprefix $(OBJDIR), $(INFERENCE_SRCS:.cc=.o))
-MYOBJ := $(addprefix $(OBJDIR), combinedObj.o)
 
 INFERENCE_SO_NAME := libtensorflow_inference.so
 INFERENCE_SO_PATH := $(LIBDIR)$(INFERENCE_SO_NAME)
 
 
-$(INFERENCE_SO_PATH): $(LIB_OBJS) $(INFERENCE_OBJS)
-	@mkdir -p $(dir $@) 
-	$(CROSSGPP) $(CXXFLAGS) $(INCLUDES) \
+$(INFERENCE_SO_PATH): $(LIB_OBJS) $(INFERENCE_OBJS) $(LIBDIR)libtfcuda.a
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) \
 	-o $@ $(INFERENCE_OBJS) $(LIB_OBJS) \
-	$(LIBFLAGS) $(LDFLAGS) -shared $(LIBS) \
+	$(LIBFLAGS) $(LDFLAGS) -shared -ltfcuda $(LIBS) \
 	-L$(HOME)/JetPack_Android_3.0/cuda-8.0/targets/armv7-linux-androideabi/lib \
-	-L$(HOME)/JetPack_Android_3.0/cuDNN/armv7/cuda/lib
-
-# $(INFERENCE_SO_PATH): $(LIB_OBJS) $(INFERENCE_OBJS)
-# 	@mkdir -p $(dir $@)
-# 	$(LD) \
-# -plugin /home/hanchenl/Android/Sdk/ndk-bundle/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin/../libexec/gcc/arm-linux-androideabi/4.9.x/liblto_plugin.so \
-# -plugin-opt=/home/hanchenl/Android/Sdk/ndk-bundle/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin/../libexec/gcc/arm-linux-androideabi/4.9.x/lto-wrapper \
-# -plugin-opt=-fresolution=/tmp/cchlJuXu.res \
-# -plugin-opt=-pass-through=-lgcc \
-# -plugin-opt=-pass-through=-lc \
-# -plugin-opt=-pass-through=-ldl \
-# -plugin-opt=-pass-through=-lgcc \
-# --sysroot=/home/hanchenl/Android/Sdk/ndk-bundle/platforms/android-21/arch-arm \
-# --eh-frame-hdr \
-# -shared \
-# -dynamic-linker \
-# /system/bin/linker \
-# -X \
-# -m armelf_linux_eabi \
-# -Bsymbolic \
-# -z noexecstack \
-# -z relro \
-# -z now \
-# -o $@ $(INFERENCE_OBJS) \
-# --allow-multiple-definition \
-# --whole-archive \
-# -lgnustl_static \
-# -lprotobuf \
-# -llog \
-# -lz \
-# -lstdc++ \
-# -lm \
-# -lgcc \
-# -lc \
-# -ldl \
-# -lgcc \
-# /home/hanchenl/Android/Sdk/ndk-bundle/platforms/android-21/arch-arm/usr/lib/crtend_so.o
-
-# $(MYOBJ): $(LIB_OBJS) $(INFERENCE_OBJS)
-# 	@mkdir -p $(dir $@)
-# 	$(CXX) -c -Xcompiler "-combine $(CXXFLAGS)" -o $@ $(INCLUDES) $(LIB_OBJS)
-
-# $(INFERENCE_SO_PATH): $(MYOBJ)
-# 	@mkdir -p $(dir $@)
-# 	$(CROSSGPP) $(CXXFLAGS) $(INCLUDES) $< $(LIB_OBJS) \
-# 	$(LIBFLAGS) $(LDFLAGS) -shared $(LIBS) -L/home/hanchenl/JetPack_Android/cuda-android-8.0/aarch64/lib64
-
+	-L$(HOME)/JetPack_Android_3.0/cuda-8.0/targets/armv7-linux-androideabi/lib/stubs \
+	-L$(HOME)/JetPack_Android_3.0/cuDNN/armv7/cuda/lib \
+	-L$(LIBDIR)
 $(INFERENCE_SO_NAME): $(INFERENCE_SO_PATH)
 
 
@@ -137,11 +89,8 @@ DEMO_SO_PATH := $(LIBDIR)$(DEMO_SO_NAME)
 CXXFLAGS += -DSTANDALONE_DEMO_LIB
 $(DEMO_SO_PATH): $(DEMO_OBJS)
 	@mkdir -p $(dir $@)
-	$(CROSSGPP) $(CXXFLAGS) $(INCLUDES) \
+	$(CXX) $(CXXFLAGS) \
 	-o $@ $(DEMO_OBJS) \
-	$(LIBFLAGS) $(LDFLAGS) -shared $(LIBS)  \
-        -L$(HOME)/JetPack_Android_3.0/cuda-8.0/targets/armv7-linux-androideabi/lib \
-        -L$(HOME)/JetPack_Android_3.0/cuDNN/armv7/cuda/lib
-
+	$(LIBFLAGS) $(LDFLAGS) -shared $(LIBS)
 
 $(DEMO_SO_NAME): $(DEMO_SO_PATH)

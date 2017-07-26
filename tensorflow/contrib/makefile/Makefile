@@ -194,7 +194,7 @@ ifeq ($(HAS_GEN_HOST_PROTOC),true)
 	LIBFLAGS += -L$(MAKEFILE_DIR)/gen/protobuf-host/lib
 	export LD_LIBRARY_PATH=$(MAKEFILE_DIR)/gen/protobuf-host/lib
 endif
-        CXXFLAGS += -fPIC
+	CXXFLAGS += -fPIC
 	LIBFLAGS += -Wl,--allow-multiple-definition -Wl,--whole-archive
 	LDFLAGS := -Wl,--no-whole-archive
 endif
@@ -204,7 +204,7 @@ ifeq ($(TARGET),LINUX)
 endif
 # If we're cross-compiling for the Raspberry Pi, use the right gcc.
 ifeq ($(TARGET),PI)
-	CXXFLAGS += -D__ANDROID_TYPES_SLIM__
+	CXXFLAGS += -D__ANDROID_TYPES_SLIM__ -DRASPBERRY_PI
 	LDFLAGS := -Wl,--no-whole-archive
 	LIBS += -ldl -lpthread
 	LIBFLAGS += -Wl,--allow-multiple-definition -Wl,--whole-archive
@@ -235,9 +235,9 @@ ifeq ($(TARGET),ANDROID)
     $(error "NDK_ROOT is not defined.")
 	endif
 	CROSSGPP := $(NDK_ROOT)/toolchains/arm-linux-androideabi-4.9/prebuilt/$(OS_PATH)-x86_64/bin/arm-linux-androideabi-g++
+	CXX := $(CC_PREFIX) $(CROSSGPP)
 	NVCC := $(HOME)/JetPack_Android_3.0/cuda-8.0/bin/nvcc
-	# NVCCFLAGS := -ccbin $(CROSSGPP) --std c++11 --expt-relaxed-constexpr -m32 -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=sm_35 -gencode arch=compute_52,code=sm_52 -gencode arch=compute_53,code=sm_53 -gencode arch=compute_62,code=sm_62 -DGOOGLE_CUDA
-	NVCCFLAGS := -x=cu -D__CUDACC__ -DNVCC -ccbin $(CROSSGPP) --std c++11 --expt-relaxed-constexpr -m32 -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=sm_35 -gencode arch=compute_52,code=sm_52 -gencode arch=compute_53,code=sm_53 -gencode arch=compute_62,code=sm_62 -DEIGEN_AVOID_STL_ARRAY -DTENSORFLOW_USE_EIGEN_THREADPOOL -DLANG_CXX11 -DEIGEN_HAS_C99_MATH -DGOOGLE_CUDA=1 -DTF_EXTRA_CUDA_CAPABILITIES=5.3
+	NVCCFLAGS := -x=cu -D__CUDACC__ -DNVCC -ccbin $(CROSSGPP) --std c++11 --expt-relaxed-constexpr -m32 -gencode arch=compute_53,code=sm_53 -gencode arch=compute_62,code=sm_62 -DEIGEN_AVOID_STL_ARRAY -DTENSORFLOW_USE_EIGEN_THREADPOOL -DLANG_CXX11 -DEIGEN_HAS_C99_MATH -DGOOGLE_CUDA=1 -DTF_EXTRA_CUDA_CAPABILITIES=5.3
 	#-gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=sm_35 -gencode arch=compute_52,code=sm_52 -gencode arch=compute_53,code=sm_53 -gencode arch=compute_62,code=sm_62
 	CXXFLAGS4NVCC +=\
 -march=armv7-a \
@@ -245,11 +245,9 @@ ifeq ($(TARGET),ANDROID)
 -mfpu=neon \
 -fPIE \
 --sysroot $(NDK_ROOT)/platforms/android-21/arch-arm
-#-fPIC \
 
-        CXX := $(CROSSGPP)
 	CXXFLAGS +=\
--DGOOGLE_CUDA \
+-DGOOGLE_CUDA=1 \
 -DEIGEN_AVOID_STL_ARRAY \
 -DEIGEN_HAS_C99_MATH \
 -DLANG_CXX11 -DTENSORFLOW_USE_EIGEN_THREADPOOL -DTF_EXTRA_CUDA_CAPABILITIES=5.3 \
@@ -258,18 +256,13 @@ ifeq ($(TARGET),ANDROID)
 -mfpu=neon \
 -fPIE \
 --sysroot $(NDK_ROOT)/platforms/android-21/arch-arm
-#-fPIE \
-
-# -L$(NDK_ROOT)/platforms/android-21/arch-arm/usr/lib
-# -Wno-narrowing \
-#-I$(NDK_ROOT)/platforms/android-21/arch-arm/usr/include \
 
 	INCLUDES = \
 -Itensorflow/core/kernels \
 -I/usr/local \
 -I$(HOME)/JetPack_Android_3.0/cuda-8.0/include \
 -I$(HOME)/JetPack_Android_3.0/cuda-8.0/extras/CUPTI/include \
--Ibazel-tensorflow/external/local_config_cuda \
+-Ibazel-TFCUDA/external/local_config_cuda \
 -I$(NDK_ROOT)/sources/android/support/include \
 -I$(NDK_ROOT)/sources/cxx-stl/gnu-libstdc++/4.9/include \
 -I$(NDK_ROOT)/sources/cxx-stl/gnu-libstdc++/4.9/libs/armeabi/include \
@@ -280,10 +273,10 @@ ifeq ($(TARGET),ANDROID)
 -I$(MAKEFILE_DIR)/gen/protobuf/include \
 -I$(MAKEFILE_DIR)/downloads/googletest/googletest/include \
 -I$(PROTOGENDIR) \
--I$(PBTGENDIR)
+-I$(PBTGENDIR) \
+-Ibazel-genfiles
 
 	LIBS := \
--ljosh \
 -lgnustl_static \
 -lprotobuf \
 -llog \
@@ -294,7 +287,7 @@ ifeq ($(TARGET),ANDROID)
 -lcublas \
 -lcufftw \
 -lcufft  \
--lcuinj32 \
+-lcuda \
 -lcurand
 
 	LD := $(NDK_ROOT)/toolchains/arm-linux-androideabi-4.9/prebuilt/$(OS_PATH)-x86_64/arm-linux-androideabi/bin/ld
@@ -321,6 +314,20 @@ ifeq ($(TARGET),ANDROID)
 		LIBS += -lhexagon_controller
 		LDFLAGS += -L$(HEXAGON_LIBS)
 		CXXFLAGS += -DUSE_HEXAGON_LIBS
+
+# CAVEAT: We should disable TENSORFLOW_DISABLE_META while running
+# quantized_matmul on Android because it crashes in
+# MultiThreadGemm in tensorflow/core/kernels/meta_support.cc
+# See http://b/33270149
+# TODO(satok): Remove once it's fixed
+		CXXFLAGS += -DTENSORFLOW_DISABLE_META
+
+# Declare __ANDROID_TYPES_FULL__ to enable required types for hvx
+		CXXFLAGS += -D__ANDROID_TYPES_FULL__
+	endif
+
+	ifdef ENABLE_EXPERIMENTAL_HEXNN_OPS
+		CXXFLAGS += -DENABLE_EXPERIMENTAL_HEXNN_OPS
 	endif
 
 endif  # ANDROID
@@ -335,7 +342,7 @@ ifeq ($(TARGET),IOS)
 	IPHONESIMULATOR_SYSROOT := $(shell xcrun --sdk iphonesimulator \
 	--show-sdk-path)
 	IOS_SDK_VERSION := $(shell xcrun --sdk iphoneos --show-sdk-version)
-	MIN_SDK_VERSION := 8.2
+	MIN_SDK_VERSION := 8.0
 # Override IOS_ARCH with ARMV7, ARMV7S, ARM64, or I386.
 	IOS_ARCH := X86_64
 	ifeq ($(IOS_ARCH),ARMV7)
@@ -412,6 +419,7 @@ ifeq ($(TARGET),IOS)
 	ifeq ($(IOS_ARCH),I386)
 		CXXFLAGS += -mios-simulator-version-min=$(MIN_SDK_VERSION) \
 		-arch i386 \
+		-mno-sse \
 		-fembed-bitcode \
 		-D__thread= \
 		-DUSE_GEMM_FOR_CONV \
@@ -465,7 +473,6 @@ endif
 # runtime that can be linked in to other programs.
 LIB_NAME := libtensorflow-core.a
 LIB_PATH := $(LIBDIR)$(LIB_NAME)
-LIB_PATH2 := $(LIBDIR)$(LIB_NAME)
 
 # A small example program that shows how to link against the library.
 BENCHMARK_NAME := $(BINDIR)benchmark
@@ -497,9 +504,7 @@ $(wildcard tensorflow/core/grappler/utils/*.cc) \
 $(wildcard tensorflow/core/lib/core/*.cc) \
 $(wildcard tensorflow/core/lib/*/*.cc) \
 tensorflow/core/grappler/inputs/utils.cc 
-# Remove duplicates (for version_info.cc)
-#$(wildcard tensorflow/core/kernels/*.cu.cc) \
-CORE_CC_ALL_SRCS := $(sort $(CORE_CC_ALL_SRCS))
+
 CORE_CC_EXCLUDE_SRCS := \
 $(wildcard tensorflow/core/*/*test.cc) \
 $(wildcard tensorflow/core/*/*testutil*) \
@@ -519,35 +524,8 @@ $(wildcard tensorflow/cc/training/*test.cc) \
 tensorflow/core/util/cuda_kernel_helper_test.cu.cc \
 tensorflow/core/lib/io/record_reader.cc
 
-# $(wildcard tensorflow/core/graph/dot.*) \
-# $(wildcard tensorflow/core/lib/gif/*) \
-# $(wildcard tensorflow/core/lib/jpeg/*) \
-# $(wildcard tensorflow/core/lib/png/*) \
-# $(wildcard tensorflow/core/util/events_writer.*) \
-# $(wildcard tensorflow/core/util/reporter.*) \
-# $(wildcard tensorflow/core/platform/default/test_benchmark.*) \
-# $(wildcard tensorflow/core/platform/cloud/*) \
-# $(wildcard tensorflow/core/platform/google/*) \
-# $(wildcard tensorflow/core/platform/google/*/*) \
-# $(wildcard tensorflow/core/platform/jpeg.*) \
-# $(wildcard tensorflow/core/platform/png.*) \
-# $(wildcard tensorflow/core/platform/stream_executor.*) \
-# $(wildcard tensorflow/core/platform/windows/*)
-#$(wildcard tensorflow/core/lib/io/zlib*) \
-#$(wildcard tensorflow/core/platform/default/stream_executor.*) \
-# $(wildcard tensorflow/core/user_ops/*.cu.cc) \
-# $(wildcard tensorflow/core/common_runtime/gpu/*) \
-# $(wildcard tensorflow/core/common_runtime/gpu_device_factory.*) \
-# $(wildcard tensorflow/core/platform/default/cuda_libdevice_path.*) \
-# $(wildcard tensorflow/core/platform/cuda.h) \
-# $(wildcard tensorflow/core/platform/cuda_libdevice_path.*)
-
 # Filter out all the excluded files.
 TF_CC_SRCS := $(filter-out $(CORE_CC_EXCLUDE_SRCS), $(CORE_CC_ALL_SRCS))
-$(warning "origin!!!!!!!!!!!!!!" $(CORE_CC_ALL_SRCS))
-$(warning "exclude!!!!!!!!!!!!!!" $(CORE_CC_EXCLUDE_SRCS))
-$(warning "include!!!!!!!!!!!!!!" $(TF_CC_SRCS))
-$(warning "CUDA src !!!!!!!!!!!!!!" $(CUDA_SRCS))
 
 # Add in any extra files that don't fit the patterns easily
 TF_CC_SRCS += tensorflow/core/common_runtime/gpu/gpu_tracer.cc
@@ -570,15 +548,12 @@ PROTO_OBJS := $(addprefix $(OBJDIR), $(PROTO_SRCS:.proto=.pb.o))
 LIB_OBJS := $(PROTO_OBJS) $(TF_CC_OBJS) $(PBT_OBJS) $(TF_CUDA_OBJS)
 BENCHMARK_OBJS := $(addprefix $(OBJDIR), $(BENCHMARK_SRCS:.cc=.o))
 
-$(warning "============================= !!!!!!!!!!!!!!" $(TF_CORE_GPU_KERNELS_OBJS))
-
 .PHONY: clean cleantarget
 
 # The target that's compiled if there's no command-line arguments.
-all: libmylib.a $(LIB_PATH) $(BENCHMARK_NAME)
+all: $(LIB_PATH) $(BENCHMARK_NAME)
 
 # Rules for target compilation.
-
 
 .phony_version_info:
 tensorflow/core/util/version_info.cc: .phony_version_info
@@ -586,36 +561,29 @@ tensorflow/core/util/version_info.cc: .phony_version_info
 
 # Gathers together all the objects we've compiled into a single '.a' archive.
 $(LIB_PATH): $(LIB_OBJS)
-	@echo "josh: proc1  $< $(AR) $(ARFLAGS) $(LIB_PATH) $(LIB_OBJS)"
 	@mkdir -p $(dir $@)
 	$(AR) $(ARFLAGS) $(LIB_PATH) $(LIB_OBJS)
 
 # Gathers together all the objects we've compiled into a single '.a' archive.
-libmylib.a: $(TF_CORE_GPU_KERNELS_OBJS)
-	@echo "************************************** josh: proc1-1 ******************************************************************** "
+$(LIBDIR)libtfcuda.a: $(TF_CORE_GPU_KERNELS_OBJS)
 	@mkdir -p $(dir $@)
-	$(AR) $(ARFLAGS) libjosh.a $(TF_CORE_GPU_KERNELS_OBJS)
-
-libs: libmylib.a 
+	$(AR) $(ARFLAGS) $@ $(TF_CORE_GPU_KERNELS_OBJS)
 
 
 $(BENCHMARK_NAME): $(BENCHMARK_OBJS) $(LIB_PATH)
-	@echo "josh: proc2  $<"
 	@mkdir -p $(dir $@)
-	$(CXX) -Xcompiler "$(CXXFLAGS)" $(INCLUDES) \
+	$(CXX) $(CXXFLAGS) $(INCLUDES) \
 	-o $(BENCHMARK_NAME) $(BENCHMARK_OBJS) \
-	-Xlinker "$(LIBFLAGS) $(LIB_PATH) $(LDFLAGS)" $(LIBS)
+	$(LIBFLAGS) $(LIB_PATH) $(LDFLAGS) $(LIBS)
 
 # Matches on the normal hand-written TensorFlow C++ source files.
 $(OBJDIR)%.o: %.cc | $(PBT_GEN_FILES)
-	@echo "G++ COMPILE !!! $<"
 	@mkdir -p $(dir $@)
 	@mkdir -p $(dir $(DEPDIR)$*)
 	$(CXX) $(CXXFLAGS) $(DEPFLAGS) $(INCLUDES) -c $< -o $@
 	@mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d
 
 $(OBJDIR)%.cu.o: %.cu.cc
-	@echo "NVCC COMPILE !!! $<"
 	@mkdir -p $(dir $@)
 	@mkdir -p $(dir $(DEPDIR)$*)
 	$(NVCC) $(NVCCFLAGS) -Xcompiler "$(CXXFLAGS4NVCC) $(DEPFLAGS)" $(INCLUDES) -c $< -o $@
@@ -623,19 +591,16 @@ $(OBJDIR)%.cu.o: %.cu.cc
 
 # Compiles C++ source files that have been generated by protoc.
 $(OBJDIR)%.pb.o: $(PROTOGENDIR)%.pb.cc
-	@echo "josh: proc3  $<"
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 # Builds C++ code from proto files using protoc.
 $(PROTOGENDIR)%.pb.cc $(PROTOGENDIR)%.pb.h: %.proto
-	@echo "josh: proc4  $<"
 	@mkdir -p $(dir $@)
 	$(PROTOC) $(PROTOCFLAGS) $< --cpp_out $(PROTOGENDIR)
 
 # Uses proto_text to generate minimal pb_text C++ files from protos.
 $(PBTGENDIR)%.pb_text.cc $(PBTGENDIR)%.pb_text.h $(PBTGENDIR)%.pb_text-impl.h: %.proto | $(PROTO_TEXT)
-	@echo "josh: proc5  $<"
 	@mkdir -p $(dir $@)
 	$(PROTO_TEXT) \
 	$(PBTGENDIR)tensorflow/core \
